@@ -93,6 +93,12 @@ func main() {
 		AfterIndex: 0,
 		Recursive:  true,
 	})
+
+	// Fill the initial data
+	for _, hostConfig := range config.keys {
+		registerService(etcdKeys, hostConfig)
+	}
+
 	for {
 		response, err := watcher.Next(context.Background())
 		if err != nil {
@@ -145,7 +151,8 @@ func registerService(etcdKeys etcdClient.KeysAPI, hostConfig *HostConfig) {
 		Recursive: true,
 	})
 	if err != nil {
-		log.Fatal(err)
+		fmt.Printf("Key not found %s\n", utils.PrefixForPattern(hostConfig.key))
+		return
 	}
 	extractIPs(resp.Node)
 
@@ -166,4 +173,7 @@ func registerService(etcdKeys etcdClient.KeysAPI, hostConfig *HostConfig) {
 		HostedZoneId: aws.String(hostConfig.zoneId),
 	})
 	spew.Dump(resp2)
+	if err != nil {
+		spew.Dump(err)
+	}
 }
