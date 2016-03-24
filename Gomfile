@@ -1,4 +1,0 @@
-gom 'github.com/aws/aws-sdk-go', :commit => '8b65071f5a0b9f807bc2de959683980ba9e2fe9b'
-gom 'github.com/coreos/etcd', :tag => 'v2.2.3'
-gom 'golang.org/x/net/context'
-gom 'github.com/davecgh/go-spew/spew'

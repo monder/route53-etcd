@@ -1,14 +1,11 @@
 FROM golang:1.5
 
 ENV GO15VENDOREXPERIMENT=1
-RUN go get github.com/mattn/gom
+RUN go get github.com/Masterminds/glide
 
 RUN mkdir -p /go/src/github.com/monder/route53-etcd
 WORKDIR /go/src/github.com/monder/route53-etcd
-COPY Gomfile /go/src/github.com/monder/route53-etcd/
-RUN gom install
-
 COPY . /go/src/github.com/monder/route53-etcd
-RUN gom build app.go
+RUN glide install && go build
 
-ENTRYPOINT ["/go/src/github.com/monder/route53-etcd/app"]
+ENTRYPOINT ["/go/src/github.com/monder/route53-etcd/route53-etcd"]

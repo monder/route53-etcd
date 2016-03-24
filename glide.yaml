@@ -1,0 +1,16 @@
+package: github.com/monder/route53-etcd
+import:
+- package: github.com/aws/aws-sdk-go
+  subpackages:
+  - aws
+  - aws/session
+  - service/route53
+- package: github.com/coreos/etcd
+  subpackages:
+  - client
+- package: github.com/davecgh/go-spew
+  subpackages:
+  - spew
+- package: golang.org/x/net
+  subpackages:
+  - context

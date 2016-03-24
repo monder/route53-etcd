@@ -1,0 +1,50 @@
+hash: 13fe3eeeba902f27bf6edef670228ef007b0d8c7b2c7caba3f1ac199110b6a93
+updated: 2016-03-24T22:25:49.892410393+02:00
+imports:
+- name: github.com/aws/aws-sdk-go
+  version: 5615ff84635949c96bbe57d8be05ca0f025f754c
+  subpackages:
+  - aws
+  - aws/session
+  - service/route53
+  - aws/awserr
+  - aws/credentials
+  - aws/client
+  - aws/corehandlers
+  - aws/defaults
+  - aws/request
+  - private/endpoints
+  - aws/awsutil
+  - aws/client/metadata
+  - private/protocol/restxml
+  - private/signer/v4
+  - aws/credentials/ec2rolecreds
+  - aws/ec2metadata
+  - private/protocol/query
+  - private/protocol/rest
+  - private/protocol/xml/xmlutil
+  - private/protocol/query/queryutil
+  - private/protocol
+- name: github.com/coreos/etcd
+  version: 7d2545c72e5cbf1f072e99537dafc3883c73740e
+  subpackages:
+  - client
+  - pkg/pathutil
+  - pkg/types
+- name: github.com/davecgh/go-spew
+  version: 5215b55f46b2b919f50a1df0eaa5886afe4e3b3d
+  subpackages:
+  - spew
+- name: github.com/go-ini/ini
+  version: 12f418cc7edc5a618a51407b7ac1f1f512139df3
+- name: github.com/jmespath/go-jmespath
+  version: 0b12d6b521d83fc7f755e7cfc1b1fbdd35a01a74
+- name: github.com/ugorji/go
+  version: f1f1a805ed361a0e078bb537e4ea78cd37dcf065
+  subpackages:
+  - codec
+- name: golang.org/x/net
+  version: 6acef71eb69611914f7a30939ea9f6e194c78172
+  subpackages:
+  - context
+devImports: []
