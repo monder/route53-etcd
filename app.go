@@ -1,25 +1,16 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/route53"
+	"github.com/codegangsta/cli"
 	etcdClient "github.com/coreos/etcd/client"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/monder/route53-etcd/utils"
 	"golang.org/x/net/context"
-	"log"
 	"os"
-	"strings"
 )
-
-var opts struct {
-	etcdEndpoints string
-	etcdPrefix    string
-	help          bool
-}
 
 type HostConfig struct {
 	zoneId string
@@ -27,109 +18,144 @@ type HostConfig struct {
 	key    string
 }
 
-var config struct {
-	route53     *route53.Route53
-	watchPrefix string
-	keys        []*HostConfig
+type ServerState struct {
+	etcdAPI etcdClient.KeysAPI
+	route53 *route53.Route53
+
+	monitoredHosts []*HostConfig
+
+	activeWatcher *etcdClient.Watcher
+
+	configReloadCh chan bool
+	hostReloadCh   chan *HostConfig
 }
 
-func init() {
-	flag.StringVar(&opts.etcdEndpoints, "etcd-endpoints", "http://127.0.0.1:4001,http://127.0.0.1:2379", "a comma-delimited list of etcd endpoints")
-	flag.StringVar(&opts.etcdPrefix, "etcd-prefix", "/hosts/", "etcd prefix")
-	flag.BoolVar(&opts.help, "help", false, "print this message")
-}
-
-func main() {
-	flag.Set("logtostderr", "true")
-
-	flag.Parse()
-
-	if flag.NArg() > 0 || opts.help {
-		fmt.Fprintf(os.Stderr, "Usage: %s [OPTION]...\n", os.Args[0])
-		flag.PrintDefaults()
-		os.Exit(0)
-	}
-
-	configEtcd, err := etcdClient.New(etcdClient.Config{
-		Endpoints: strings.Split(opts.etcdEndpoints, ","),
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	etcdKeys := etcdClient.NewKeysAPI(configEtcd)
-
-	resp, err := etcdKeys.Get(context.Background(), opts.etcdPrefix, &etcdClient.GetOptions{
+func watchNewHostPath(s *ServerState, prefix string) {
+	resp, err := s.etcdAPI.Get(context.Background(), prefix, &etcdClient.GetOptions{
 		Recursive: true,
 	})
 	if err != nil {
-		log.Fatal(err)
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
 	}
-
-	config.watchPrefix = ""
-	config.keys = make([]*HostConfig, 0)
-	config.route53 = route53.New(session.New())
-
+	var watchPrefix = ""
+	s.monitoredHosts = make([]*HostConfig, 0)
 	for _, zone := range resp.Node.Nodes {
-		zoneId := zone.Key[len(opts.etcdPrefix):]
+		zoneId := zone.Key[len(prefix):]
 		zonePrefix := zone.Key + "/"
 		fmt.Printf("Zone %s\n", zoneId)
 		for _, domain := range zone.Nodes {
 			domainName := domain.Key[len(zonePrefix):]
 			fmt.Printf("  Register domain: %s\n", domainName)
-			config.keys = append(config.keys, &HostConfig{
+			s.monitoredHosts = append(s.monitoredHosts, &HostConfig{
 				zoneId: zoneId,
 				domain: domainName,
 				key:    domain.Value,
 			})
-			if config.watchPrefix == "" {
-				config.watchPrefix = domain.Value
+			if watchPrefix == "" {
+				watchPrefix = domain.Value
 			} else {
-				config.watchPrefix = utils.CommonPrefixForPatterns(config.watchPrefix, domain.Value)
+				watchPrefix = utils.CommonPrefixForPatterns(watchPrefix, domain.Value)
 			}
 		}
 	}
-
-	watcher := etcdKeys.Watcher(config.watchPrefix, &etcdClient.WatcherOptions{
+	fmt.Printf("start watching %s\n", watchPrefix)
+	watcher := s.etcdAPI.Watcher(watchPrefix, &etcdClient.WatcherOptions{
 		AfterIndex: 0,
 		Recursive:  true,
 	})
-
-	// Fill the initial data
-	for _, hostConfig := range config.keys {
-		registerService(etcdKeys, hostConfig)
-	}
-
+	s.activeWatcher = &watcher
 	for {
-		response, err := watcher.Next(context.Background())
-		if err != nil {
-			log.Fatal("Error occurred", err)
+		resp, err = watcher.Next(context.Background())
+		if &watcher != s.activeWatcher {
+			fmt.Printf("stop watching aaa\n")
+			break
 		}
-		for _, h := range config.keys {
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			continue
+		}
+
+		for _, h := range s.monitoredHosts {
 			// TODO expired?
-			switch response.Action {
+			switch resp.Action {
 			case "delete":
-				if !utils.MatchPathPrefix(response.Node.Key, h.key) {
+				if !utils.MatchPathPrefix(resp.Node.Key, h.key) {
 					continue
 				}
 			case "set":
-				if !utils.MatchPath(response.Node.Key, h.key) {
+				if !utils.MatchPath(resp.Node.Key, h.key) {
 					continue
 				}
-				if response.PrevNode != nil && response.Node.Value == response.PrevNode.Value {
+				if resp.PrevNode != nil && resp.Node.Value == resp.PrevNode.Value {
 					fmt.Printf("nothing changed\n")
 					continue
 				}
 			default:
 				continue
 			}
-			fmt.Printf("Matched update %s%s/%s\n", opts.etcdPrefix, h.zoneId, h.domain)
-			spew.Dump(response)
-			registerService(etcdKeys, h)
+			fmt.Printf("Matched update %s%s/%s\n", prefix, h.zoneId, h.domain)
+			s.hostReloadCh <- h
 		}
 	}
 }
 
-func registerService(etcdKeys etcdClient.KeysAPI, hostConfig *HostConfig) {
+func runServer(c *cli.Context) {
+	state := &ServerState{
+		etcdAPI: utils.GetEtcdKeysAPI(c),
+		route53: route53.New(session.New()),
+
+		monitoredHosts: make([]*HostConfig, 0),
+
+		configReloadCh: make(chan bool),
+		hostReloadCh:   make(chan *HostConfig),
+	}
+
+	// TODO go watchConfig
+	go func() {
+		fmt.Println("Loading initial config")
+		state.configReloadCh <- true
+	}()
+
+	for {
+		fmt.Printf("test3\n")
+		select {
+		case <-state.configReloadCh:
+			fmt.Printf("test a\n")
+			go watchNewHostPath(state, c.GlobalString("etcd-prefix"))
+			// reloadAll
+		case host := <-state.hostReloadCh:
+			fmt.Printf("test b\n")
+			registerService(state, host)
+		}
+	}
+}
+
+func main() {
+	app := cli.NewApp()
+	app.Version = "0.3.0"
+	app.Usage = "Exposing IPs registred in etcd to route53"
+
+	app.Flags = []cli.Flag{
+		cli.StringFlag{
+			Name:   "etcd-endpoints",
+			Value:  "http://127.0.0.1:4001,http://127.0.0.1:2379",
+			Usage:  "a comma-delimited list of etcd endpoints",
+			EnvVar: "ETCDCTL_ENDPOINT",
+		},
+		cli.StringFlag{
+			Name:  "etcd-prefix",
+			Value: "/hosts/",
+			Usage: "a keyspace for host configuration data in etcd",
+		},
+	}
+	app.ArgsUsage = " "
+	app.Action = runServer
+
+	app.Run(os.Args)
+}
+
+func registerService(s *ServerState, hostConfig *HostConfig) {
 	extractedIPs := make([]*route53.ResourceRecord, 0)
 	var extractIPs func(*etcdClient.Node)
 	extractIPs = func(node *etcdClient.Node) {
@@ -147,7 +173,7 @@ func registerService(etcdKeys etcdClient.KeysAPI, hostConfig *HostConfig) {
 			}
 		}
 	}
-	resp, err := etcdKeys.Get(context.Background(), utils.PrefixForPattern(hostConfig.key), &etcdClient.GetOptions{
+	resp, err := s.etcdAPI.Get(context.Background(), utils.PrefixForPattern(hostConfig.key), &etcdClient.GetOptions{
 		Recursive: true,
 	})
 	if err != nil {
@@ -156,7 +182,7 @@ func registerService(etcdKeys etcdClient.KeysAPI, hostConfig *HostConfig) {
 	}
 	extractIPs(resp.Node)
 
-	resp2, err := config.route53.ChangeResourceRecordSets(&route53.ChangeResourceRecordSetsInput{
+	_, err = s.route53.ChangeResourceRecordSets(&route53.ChangeResourceRecordSetsInput{
 		ChangeBatch: &route53.ChangeBatch{
 			Changes: []*route53.Change{
 				{
@@ -172,8 +198,7 @@ func registerService(etcdKeys etcdClient.KeysAPI, hostConfig *HostConfig) {
 		},
 		HostedZoneId: aws.String(hostConfig.zoneId),
 	})
-	spew.Dump(resp2)
 	if err != nil {
-		spew.Dump(err)
+		fmt.Fprintln(os.Stderr, err.Error())
 	}
 }
