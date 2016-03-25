@@ -59,7 +59,10 @@ func watchNewHostPath(s *ServerState, prefix string) {
 			}
 		}
 	}
-	fmt.Printf("start watching %s\n", watchPrefix)
+	for _, host := range s.monitoredHosts {
+		registerService(s, host)
+	}
+	fmt.Printf("Start watching prefix %s\n", watchPrefix)
 	watcher := s.etcdAPI.Watcher(watchPrefix, &etcdClient.WatcherOptions{
 		AfterIndex: 0,
 		Recursive:  true,
@@ -68,7 +71,6 @@ func watchNewHostPath(s *ServerState, prefix string) {
 	for {
 		resp, err = watcher.Next(context.Background())
 		if &watcher != s.activeWatcher {
-			fmt.Printf("stop watching aaa\n")
 			break
 		}
 		if err != nil {
@@ -88,7 +90,7 @@ func watchNewHostPath(s *ServerState, prefix string) {
 					continue
 				}
 				if resp.PrevNode != nil && resp.Node.Value == resp.PrevNode.Value {
-					fmt.Printf("nothing changed\n")
+					fmt.Printf("Nothing changed\n")
 					continue
 				}
 			default:
@@ -97,6 +99,23 @@ func watchNewHostPath(s *ServerState, prefix string) {
 			fmt.Printf("Matched update %s%s/%s\n", prefix, h.zoneId, h.domain)
 			s.hostReloadCh <- h
 		}
+	}
+}
+
+func watchConfig(s *ServerState, prefix string) {
+	watcher := s.etcdAPI.Watcher(prefix, &etcdClient.WatcherOptions{
+		AfterIndex: 0,
+		Recursive:  true,
+	})
+	fmt.Println("Loading initial config")
+	s.configReloadCh <- true
+	for {
+		_, err := watcher.Next(context.Background())
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			continue
+		}
+		s.configReloadCh <- true
 	}
 }
 
@@ -111,21 +130,13 @@ func runServer(c *cli.Context) {
 		hostReloadCh:   make(chan *HostConfig),
 	}
 
-	// TODO go watchConfig
-	go func() {
-		fmt.Println("Loading initial config")
-		state.configReloadCh <- true
-	}()
+	go watchConfig(state, c.GlobalString("etcd-prefix"))
 
 	for {
-		fmt.Printf("test3\n")
 		select {
 		case <-state.configReloadCh:
-			fmt.Printf("test a\n")
 			go watchNewHostPath(state, c.GlobalString("etcd-prefix"))
-			// reloadAll
 		case host := <-state.hostReloadCh:
-			fmt.Printf("test b\n")
 			registerService(state, host)
 		}
 	}
