@@ -75,7 +75,7 @@ func watchNewHostPath(s *ServerState, prefix string) {
 		}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err.Error())
-			continue
+			os.Exit(1)
 		}
 
 		for _, h := range s.monitoredHosts {
@@ -113,7 +113,7 @@ func watchConfig(s *ServerState, prefix string) {
 		_, err := watcher.Next(context.Background())
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err.Error())
-			continue
+			os.Exit(1)
 		}
 		s.configReloadCh <- true
 	}
@@ -144,7 +144,7 @@ func runServer(c *cli.Context) {
 
 func main() {
 	app := cli.NewApp()
-	app.Version = "0.3.0"
+	app.Version = "0.3.1"
 	app.Usage = "Exposing IPs registred in etcd to route53"
 
 	app.Flags = []cli.Flag{
