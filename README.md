@@ -1,5 +1,6 @@
 # route53-etcd
 
+[![Go Report Card](https://goreportcard.com/badge/github.com/monder/route53-etcd)](https://goreportcard.com/report/github.com/monder/route53-etcd)
 [![license](https://img.shields.io/github/license/monder/route53-etcd.svg?maxAge=2592000&style=flat-square)]()
 [![GitHub tag](https://img.shields.io/github/tag/monder/route53-etcd.svg?style=flat-square)]()
 
