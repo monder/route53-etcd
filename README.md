@@ -8,8 +8,12 @@ Exposing IPs registred in etcd to route53
 
 #Running
 
+Application is avalable as both - docker image and signed rkt image:
+
 ```
-docker run monder/route53-etcd --etcd-endpoints=http://10.0.1.10:4001
+sudo docker monder/route53-etcd:0.3.1 --etcd-endpoints=http://10.0.1.10:2379
+# or
+sudo rkt monder.cc/route53-etcd:v0.3.1
 ```
 
 Will read the configuration in etcd path `/hosts`
